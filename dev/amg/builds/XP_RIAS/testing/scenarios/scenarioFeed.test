@@ -39,18 +39,18 @@ Feeding from scenarios
 We can construct a feeder from a scenario
 	>>> feeder = scenarioFeed.ScenarioFeeder(scenario)
 
-We've only just started
-	>>> feeder.atEnd()
-	False
-
-This feeder gives normal NMEA-like strings for feeding into RIAS
-	Quick method to make testing that a bit easier
-	>>> import time
 	>>> def next_lat_long_alt():
+	...     """This is quickie method to ease testing"""
+	...     import time
 	...     prefix, sentinel, latitude, _, longitude, _, _, _, _, altitude, _, _, _, _, _, _ = feeder.getLine().split(',')
 	...     print '%s %s %.1f, %.1f, %.1f' % (prefix, sentinel, float(latitude), float(longitude), float(altitude) )
 	...     time.sleep(1)
 
+We've only just started, so we shouldn't be at end yet
+	>>> feeder.atEnd()
+	False
+
+The feeder gives normal NMEA-like strings for feeding into RIAS
 "The plane" starts here
 	>>> next_lat_long_alt()
 	$GPALT 120000 622.2, 638.3, 8500.0
@@ -68,32 +68,41 @@ Given these two points
 	>>> start_latitude, start_longitude = -37.951033, 144.424867
 	>>> end_latitude, end_longitude = -37.652819, 143.926495
 
-At http://williams.best.vwh.net/gccalc.htm we find the following distance
+At http://edwilliams.org/gccalc.htm we find the following distance
 	>>> expected = 54.972271
+
+Check how close an answer is
+	>>> def good_enough(actual, expected):
+    ...     """Another quickie method for testing"""
+	...     import math
+	...     return math.fabs(expected - actual) < , expected
 
 We'll accept an answer within this error (metres)
 	>>> acceptable_accuracy = 0.0001
 
-	>>> import math
-	>>> def good_enough(actual):
-	...     return math.fabs(expected - actual) < acceptable_accuracy
+And now try the 3 algorithms
 	>>> actual = scenarioFeed.law_of_cosines_kilometres( start_latitude, start_longitude, end_latitude, end_longitude )
-	>>> good_enough(actual)
+	>>> good_enough(actual, acceptable_accuracy)
 	False
 
 	>>> actual = scenarioFeed.haversine_kilometres( start_latitude, start_longitude, end_latitude, end_longitude )
-	>>> good_enough(actual)
+	>>> good_enough(actual, acceptable_accuracy)
 	False
 
 	>>> actual = scenarioFeed.vincenty_kilometres( start_latitude, start_longitude, end_latitude, end_longitude )
-	>>> good_enough(actual)
+	>>> good_enough(actual, acceptable_accuracy)
 	True
 
 OK, we'll use the Vincenty then
 
 The next test can be verified at http://www.google.ie/#q=5.3+knots+in+m%2Fs
-	>>> print '%0.8f' % scenarioFeed.knots_to_metres_per_second(5.3)
+    >>> google_says = 2.72656
+    >>> code_says = scenarioFeed.knots_to_metres_per_second(5.3)
+	>>> print '%0.8f' % code_says
 	2.72655555
+    >>> diff = google_says - code_says
+    >>> diff < acceptable_accuracy
+    True
 
 Interpolating points
 --------------------

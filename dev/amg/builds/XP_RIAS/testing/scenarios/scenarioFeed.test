@@ -1,0 +1,196 @@
+The scenarioFeed script
+=======================
+
+This script is used to feed nmea strings from scenario files
+	>>> import scenarioFeed
+
+Scenarios are stored in files
+-----------------------------
+
+There is a method which reads scenario files
+	>>> print scenarioFeed.read_scenario_file('no such file')
+	None
+
+Scenario files are xml formatted
+	with a format defined by AeroMobile
+	which we have reverse engineered
+	>>> scenario = scenarioFeed.read_scenario_file('scenario1.txt')
+
+A scenario has a number of waypoints on a journey from an origin to a destination
+	>>> print scenario
+	2 turns from OMDB to VOTV
+
+Each point has longitude, latitude, altitude, speed
+	For example
+	>>> print scenario.turns[0]
+	(6.3695876226300001, -6.6389224143099996, 8499.9575870800636, 1000.0)
+
+The origin and destination are as stored in the city pairs file
+	>>> print scenario.origin, scenario.destination
+	OMDB VOTV
+
+They also have a time ratio, but I'm not sure what that is
+	>>> print scenario.time_ratio
+	0
+	
+Feeding from scenarios
+----------------------
+
+We can construct a feeder from a scenario
+	>>> feeder = scenarioFeed.ScenarioFeeder(scenario)
+
+We've only just started
+	>>> feeder.atEnd()
+	False
+
+This feeder gives normal NMEA-like strings for feeding into RIAS
+	Quick method to make testing that a bit easier
+	>>> import time
+	>>> def next_lat_long_alt():
+	...     prefix, sentinel, latitude, _, longitude, _, _, _, _, altitude, _, _, _, _, _, _ = feeder.getLine().split(',')
+	...     print '%s %s %.1f, %.1f, %.1f' % (prefix, sentinel, float(latitude), float(longitude), float(altitude) )
+	...     time.sleep(1)
+
+"The plane" starts here
+	>>> next_lat_long_alt()
+	$GPALT 120000 622.2, 638.3, 8500.0
+
+And then it moves
+	>>> next_lat_long_alt()
+	$GPALT 120000 622.0, 638.1, 8499.4
+	>>> next_lat_long_alt()
+	$GPALT 120000 621.8, 638.0, 8498.9
+
+Finding distances on the earth
+------------------------------
+
+Given these two points
+	>>> start_latitude, start_longitude = -37.951033, 144.424867
+	>>> end_latitude, end_longitude = -37.652819, 143.926495
+
+At http://williams.best.vwh.net/gccalc.htm we find the following distance
+	>>> expected = 54.972271
+
+We'll accept an answer within this error (metres)
+	>>> acceptable_accuracy = 0.0001
+
+	>>> import math
+	>>> def good_enough(actual):
+	...     return math.fabs(expected - actual) < acceptable_accuracy
+	>>> actual = scenarioFeed.law_of_cosines_kilometres( start_latitude, start_longitude, end_latitude, end_longitude )
+	>>> good_enough(actual)
+	False
+
+	>>> actual = scenarioFeed.haversine_kilometres( start_latitude, start_longitude, end_latitude, end_longitude )
+	>>> good_enough(actual)
+	False
+
+	>>> actual = scenarioFeed.vincenty_kilometres( start_latitude, start_longitude, end_latitude, end_longitude )
+	>>> good_enough(actual)
+	True
+
+OK, we'll use the Vincenty then
+
+The next test can be verified at http://www.google.ie/#q=5.3+knots+in+m%2Fs
+	>>> print '%0.8f' % scenarioFeed.knots_to_metres_per_second(5.3)
+	2.72655555
+
+Interpolating points
+--------------------
+
+	>>> scenario = scenarioFeed.read_scenario_file('scenario2.txt')
+
+A scenario has a number of turns
+	Each of which has lat, long, altitude and speed
+	>>> show( scenario.turns )
+	[(6.3695876226300001, -6.6389224143099996, 8499.9575870800636, 300.0),
+	 (-12.2011183558, 2.1107371332199998, 8499.9575870800636, 300.0),
+	 (-14.2546098823, 26.9311999313, 8499.9575870800636, 300.0)]
+
+These turns provide a number of legs to the journey
+	Each leg has a start and end point, and a speed
+	The last leg wraps around to the start
+	>>> show( scenario.legs )
+	[<ScenarioLeg " 2270.57km from (  6.37,  -6.64) at 8499.96 to (-12.20,   2.11) at 8499.96">,
+	 <ScenarioLeg " 2698.43km from (-12.20,   2.11) at 8499.96 to (-14.25,  26.93) at 8499.96">,
+	 <ScenarioLeg " 4352.84km from (-14.25,  26.93) at 8499.96 to (  6.37,  -6.64) at 8499.96">]
+
+	>>> minutes_per_point = 35
+	>>> seconds_per_point = minutes_per_point * 60
+
+Each leg can be split into a number of points, given the number of seconds between each
+	>>> show( scenario.legs[0].stages(seconds_per_point) )
+	[(6.3695876226300001, -6.6389224143099996, 8499.9575870800636),
+	 (3.7166296257114291, -5.3889710503771422, 8499.9575870800636),
+	 (1.063671628792858, -4.1390196864442856, 8499.9575870800636),
+	 (-1.589286368125713, -2.8890683225114286, 8499.9575870800636),
+	 (-4.242244365044284, -1.6391169585785716, 8499.9575870800636),
+	 (-6.8952023619628555, -0.38916559464571465, 8499.9575870800636),
+	 (-9.548160358881427, 0.86078576928714234, 8499.9575870800636)]
+
+	>>> show( scenario.legs[1].stages(seconds_per_point)[:3] )
+	[(-12.2011183558, 2.1107371332199998, 8499.9575870800636),
+	 (-12.4578047966125, 5.2132949829799999, 8499.9575870800636),
+	 (-12.714491237424999, 8.3158528327399992, 8499.9575870800636)]
+
+These are joined to provide the stages for the whole journey
+
+	>>> show( scenario.stages(seconds_per_point)[4:10] )
+	[(-4.242244365044284, -1.6391169585785716, 8499.9575870800636),
+	 (-6.8952023619628555, -0.38916559464571465, 8499.9575870800636),
+	 (-9.548160358881427, 0.86078576928714234, 8499.9575870800636),
+	 (-12.2011183558, 2.1107371332199998, 8499.9575870800636),
+	 (-12.4578047966125, 5.2132949829799999, 8499.9575870800636),
+	 (-12.714491237424999, 8.3158528327399992, 8499.9575870800636)]
+
+Alternatively, one can find the point the plane should be at after a certain time
+
+	>>> print scenario.position_after(0)
+	(6.3695876226300001, -6.6389224143099996, 8499.9575870800636)
+
+	>>> print scenario.position_after(seconds_per_point)
+	(3.7187935392488827, -5.3899905865630586, 8499.9575870800636)
+
+Beyond a certain time this will wrap around,
+	and we are not getting the exact timings here, 
+	so we'll be missing the corners
+	(But the interval is set accurately enough to get back very close to the starting point)
+	>>> seconds_per_point = 6711.1111110960001
+	>>> lat, lon = 6.3695876226300001, -6.6389224143099996
+	>>> i = 0
+	>>> while i < 160000:
+	...     point = scenario.position_after(i)
+	...     print '%14.10f, %14.10f' % (point[0], point[1])
+	...     i += seconds_per_point
+	  6.3695876226,  -6.6389224143
+	 -2.1017331518,  -2.6476270495
+	-10.5730539261,   1.3436683154
+	-12.8378526307,   9.8069166296
+	-13.6260709903,  19.3340776721
+	-13.2604337975,  25.3129739232
+	 -8.3529284425,  17.3249998388
+	 -3.4454230875,   9.3370257545
+	  1.4620822675,   1.3490516702
+	  6.3695876225,  -6.6389224141
+	 -2.1017331516,  -2.6476270495
+	-10.5730539260,   1.3436683153
+	-12.8378526307,   9.8069166294
+	-13.6260709903,  19.3340776719
+	-13.2604337976,  25.3129739233
+	 -8.3529284426,  17.3249998390
+	 -3.4454230876,   9.3370257547
+	  1.4620822674,   1.3490516703
+	  6.3695876224,  -6.6389224140
+	 -2.1017331514,  -2.6476270496
+	-10.5730539258,   1.3436683152
+	-12.8378526307,   9.8069166292
+	-13.6260709903,  19.3340776717
+	-13.2604337977,  25.3129739235
+
+Compare the above points with the original turn points:
+	>>> for turn in scenario.turns:
+	...     print '%14.10f, %14.10f' % (turn[0], turn[1])
+	  6.3695876226,  -6.6389224143
+	-12.2011183558,   2.1107371332
+	-14.2546098823,  26.9311999313
+

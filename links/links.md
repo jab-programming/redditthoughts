@@ -12,3 +12,7 @@ https://www.reddit.com/r/redditthoughts/
 
 * [And](https://www.reddit.com/r/redditthoughts/) thank you
 * [And](https://www.reddit.com/r/redditthoughts/) think you
+
+
+* [oder?](https://translate.google.com/#de/en/oder%20nicht%3F)
+* [nicht?](https://translate.google.com/#de/en/nicht%20wahr%3F)
